@@ -1,5 +1,4 @@
 # Function: This component is responsible for converting your structured Python data (e.g., a dictionary representing a row) into a compact, efficient byte string that can be stored on disk, and vice-versa. This is where you decide how different data types (integers, strings, booleans) are encoded.
-
 # Key Responsibilities:
     # serialize(record: dict) -> bytes: Takes a Python dictionary (your "row") and turns it into a byte string. You'll need to decide on a format (e.g., length-prefixed strings, fixed-size integers).
         # Use varints for header size, and serial types
@@ -7,14 +6,13 @@
 
 # Interaction: The RecordStore will use the RecordSerializer whenever it needs to write a record to disk or read one from disk.
 
-
 import constants
 import struct
 
 class RecordSerializer:
 
-    def __init__(self):
-        pass
+    def __init__(self,encoding = 'utf-8'):
+        self.encoding = encoding
 
 # I want to mimic record stores in SQLite meaning we have an integer --> type mapping that shows us which datatype a given bytestream should be in
 
@@ -35,7 +33,7 @@ class RecordSerializer:
 
 
  # In SQLitem, headers and serial record types are encoded into varints which I want to mimic
-
+    @staticmethod
     def encode_varint(n: int) -> bytes:
     # The varint algorithm is to stores header_sizes and serial_records in as little space as possible. It transform any int value into multiple 7 bit chunks (usually just 1 is enough)
     # We transform the given n into bits and then take chunks of 7 bits (we use the 1st bit to show if there are more 7-bit chunks to read or not)
@@ -60,14 +58,31 @@ class RecordSerializer:
             n = n//128
         # we can then append this value (max 255--> 8 bits 1111_1111) to chunks list and process the next 7 bits
         chunks_list.append(n)
-        return bytes(reversed(chunks_list))
+        return bytes((chunks_list))
     
-    def decode_varint(encoded_varint:bytes) -> int:
-        pass
+
+    @staticmethod
+    def decode_varint(data: bytes) -> int:
+        # initialize the future n (sum of all bytes)
+        result_sum = 0
+        # start tracker to see how many 7_bit chunks have been used
+        chunk_position = 0
+
+        for i, byte in enumerate(data):
+            # get the last 7 bits from the bytes
+            value = byte % 128  
+            # add it to the future n (result_sum)
+            result_sum += value * (128 ** chunk_position)
+            # if 8th position bit is 0, we just processed last 7 bit chunk and are done
+            if byte < 128:  
+                return result_sum, i + 1
+            # adjust the 7 bit chunk that you are on
+            chunk_position += 1
+
 
 
     # Now that we have the function to encode an int into as few hexadecimals as possible we can start encoding and serializing a record into a bytestream
-    def serialize(record: dict) -> bytes:
+    def serialize(self, record: dict) -> bytes:
                     
         header_fields = []
         body = []
@@ -86,13 +101,20 @@ class RecordSerializer:
                 body_bytes = struct.pack('>d', value)
 
             elif isinstance(value, str):
-                encoded = value.encode('utf-8')
+                encoded = value.encode(self.encoding)
                 serial_type = 13 + len(encoded) * 2  # odd => text
                 body_bytes = encoded
+
+            elif isinstance(value, bool):
+                value = int(value)
+                serial_type = constants.SERIAL_RECORD_INT
+                body_bytes = value.to_bytes(serial_type, 'big', signed=True)
+
+            
             else:
                 raise TypeError(f"No support for type: {type(value)} yet")
 
-            header_fields.append(encode_varint(serial_type))         
+            header_fields.append(self.encode_varint(serial_type))         
             body.append(body_bytes)
 
         # Header size = size of all serial type varints + varint(header_size)
@@ -101,9 +123,60 @@ class RecordSerializer:
         # Get total header size to encode
         header_size = len(header_bytestream) + 1 #here we are assuming that we won't have more than 128 columns so header_length is always 1 byte long
 
-        full_header = encode_varint(header_size) + header_bytestream
+        full_header = self.encode_varint(header_size) + header_bytestream
 
         return full_header + b''.join(body)
     
-    def deserialize(bytestream:bytes) -> dict:
-        pass
+    def deserialize(self,bytestream:bytes, columns: list[str]) -> dict:
+        # extract header size and how much to offset the data to find serial types
+        header_size, offset = self.decode_varint(bytestream)
+        # use cursor
+        cursor = offset
+        # locate serial_types
+        decoded_serial_types = []
+
+        # while cursor is less than header_size
+        while cursor < header_size:
+            serial_type, n_bytes = self.decode_varint(bytestream[cursor:])
+            decoded_serial_types.append(serial_type)
+            cursor += n_bytes
+
+        record = {}
+        body = bytestream[header_size:]
+        body_cursor = 0
+
+        for i,serial_type in enumerate(decoded_serial_types):
+            
+            if serial_type == constants.SERIAL_RECORD_NULL:
+                value = None
+            
+            # string will always be more than 13 because its 13 + len(encoded) * 2
+            elif serial_type >= 13:
+                
+                # get true length and true value
+                value_size = (serial_type - 13) // 2
+                byte_value = body[body_cursor:body_cursor+value_size]
+                value = byte_value.decode(self.encoding)
+                
+                body_cursor += value_size
+
+            elif serial_type == constants.SERIAL_RECORD_INT:
+                
+                # get true length and true value
+                value_size = constants.SERIAL_RECORD_INT
+                byte_value = body[body_cursor:body_cursor+value_size]
+                value = int.from_bytes(byte_value,'big')
+                
+                body_cursor+=value_size
+            
+            elif serial_type == constants.SERIAL_RECORD_FLOAT:
+                # get true length and true value --> float always has 8 when packed as struct.pack('>d',{float_value})
+                value_size = 8
+                byte_value = body[body_cursor:body_cursor+value_size]
+                value = struct.unpack('>d',byte_value)[0]
+
+                body_cursor +=8
+
+            record[columns[i]] = value
+
+        return record
