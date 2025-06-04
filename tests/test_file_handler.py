@@ -1,5 +1,5 @@
 import os
-from src.file_handler import FileHandler
+from file_handler import FileHandler
 
 
 def test_file_handler():
