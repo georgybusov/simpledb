@@ -1,39 +1,42 @@
 import os
 from constants import PAGE_SIZE
-from page import Page  # Import your Page class
-
-
+from page import Page, PageType  # Import your Page class
+from file_handler import FileHandler
 
 class Pager:
     def __init__(self, file_path, max_cache_size=100 * PAGE_SIZE):      
-        self.file_path = file_path
+        # use file_handler to work with the file
+        self.file_handler = FileHandler(file_path)
         self.max_cache_size = max_cache_size
         self.cache = {}
         # track which pages need to be written to disk due to modification
         self.dirty_pages = set()
-
-        # open the file in read/write mode, create if it doesn't exist
-        if not os.path.exists(self.file_path):
-            self.file = open(self.file_path, 'w+b')
-        else:
-            self.file = open(self.file_path, 'r+b')
-
-        # seek to the end of the file to determine how many full pages exist
-        self.file.seek(0, os.SEEK_END)
-        # total pages on disk
-        self.num_pages = self.file.tell() // PAGE_SIZE  
+        # track number of pages
+        self.num_pages = self.file_handler.file_size // PAGE_SIZE  
 
     # retrieve a Page instance from disk or cache given its location
     def get_page(self, page_id):
         # return from memory if cached
         if page_id in self.cache:
             return self.cache[page_id]
-        # else we need to read from disk
+        
+        # Calculate byte offset in file
         offset = page_id * PAGE_SIZE
-        self.file.seek(offset)
-        raw_data = self.file.read(PAGE_SIZE)
-        # Create a Page object from the raw data
-        page = Page.from_bytes(page_id=page_id, raw=raw_data)
+        file_size = self.file_handler.file_size
+
+        # If the page does NOT exist yet, create new
+        if offset >= file_size:
+            # Make a new blank leaf page
+            page = Page(page_id=page_id, page_type=PageType.LEAF)    
+        
+
+        else:
+            # else read and deserialize existing page 
+            raw_data = self.file_handler.read_bytes(offset, PAGE_SIZE)
+
+            # Create a Page object from the raw data
+            page = Page.from_bytes(page_id=page_id, raw=raw_data)
+        
         # Store in cache and return
         self.cache[page_id] = page
         return page
@@ -52,9 +55,7 @@ class Pager:
             serialized = page.to_bytes()
             offset = page_id * PAGE_SIZE
 
-            self.file.seek(offset)
-            self.file.write(serialized)
-            self.file.flush()  # Ensure bytes are actually written to disk
+            self.file_handler.write_bytes(offset, serialized)
 
             self.dirty_pages.remove(page_id)
 
@@ -76,4 +77,4 @@ class Pager:
     def close(self):
         # write all dirty pages to disk and close the file
         self.flush_all()
-        self.file.close()
+        self.file_handler.close()

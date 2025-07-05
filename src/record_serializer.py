@@ -31,7 +31,6 @@ class RecordSerializer:
 # N≥12 and even	(N-12)/2	Value is a BLOB that is (N-12)/2 bytes in length.
 # N≥13 and odd	(N-13)/2	Value is a string in the text encoding and (N-13)/2 bytes in length. The nul terminator is not stored.
 
-
  # In SQLitem, headers and serial record types are encoded into varints which I want to mimic
     @staticmethod
     def encode_varint(n: int) -> bytes:
@@ -60,7 +59,6 @@ class RecordSerializer:
         chunks_list.append(n)
         return bytes((chunks_list))
     
-
     @staticmethod
     def decode_varint(data: bytes) -> int:
         # initialize the future n (sum of all bytes)
@@ -78,8 +76,6 @@ class RecordSerializer:
                 return result_sum, i + 1
             # adjust the 7 bit chunk that you are on
             chunk_position += 1
-
-
 
     # Now that we have the function to encode an int into as few hexadecimals as possible we can start encoding and serializing a record into a bytestream
     def serialize(self, record: dict) -> bytes:
@@ -110,7 +106,6 @@ class RecordSerializer:
                 serial_type = constants.SERIAL_RECORD_INT
                 body_bytes = value.to_bytes(serial_type, 'big', signed=True)
 
-            
             else:
                 raise TypeError(f"No support for type: {type(value)} yet")
 

@@ -210,16 +210,21 @@ class Page:
                 self.entries.append((key, child_pid))
                 self.current_size += 4 + key_len + 2
 
-
         #mark this page as unmodified as its justy loaded from disk    
         self.dirty = False
 
     # Create a page from raw bytes leveraging the init and _load_from_bytes methods
     @staticmethod
     def from_bytes(page_id: int, raw: bytes, max_size: int = PAGE_SIZE) -> "Page":
-        page_type = PageType(raw[0])
+        if len(raw) == 0:
+            raise ValueError(f"Empty page content at page_id={page_id}")
+
+        try:
+            page_type = PageType(raw[0])
+        except ValueError as e:
+            raise ValueError(f"Invalid page type byte: {raw[0]}") from e
+
         return Page(page_id=page_id, max_size=max_size, data=raw, page_type=page_type)
-    
 
     def __repr__(self):
         if self.page_type == PageType.LEAF:
