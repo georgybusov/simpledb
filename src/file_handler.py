@@ -22,8 +22,6 @@ class FileHandler:
         # FileHanlder.close()
         self.file.close()
 
-
-
     # given a specific offset, write bytes to that offset in the file
     def write_bytes(self,offset:int,bytes_to_write:bytes):
         self.file.seek(offset)
@@ -35,7 +33,6 @@ class FileHandler:
         self.file.seek(offset)
         read_bytes = self.file.read(number_of_bytes_to_read)
         return read_bytes
-
 
     def append_bytes(self,bytes_to_append:bytes):
         self.file.seek(0,os.SEEK_END)
